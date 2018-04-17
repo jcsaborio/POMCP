@@ -1,0 +1,13 @@
+POMCP 1.0
+
+This is *based* on the release of POMCP used in the NIPS 2010 paper
+"Online Monte-Carlo Planning in Large POMDPs"
+by David Silver and Joel Veness
+
+It has since been modified by Juan Carlos Saborio to implement:
+  -- PGS action selection
+  -- New test domains
+  -- Incremental model refinement (*)
+  -- Dynamic state aggregation (*)
+
+*= in progress
