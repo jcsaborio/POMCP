@@ -10,8 +10,8 @@ The original tarball is as of May 2021 no longer available.
 This version has a few minor changes:
 - The Cellar domain from:
 
-"Planning Under Uncertainty Through Goal-Driven Action Selection"
-by Juan Carlos Saborio and Joachim Hertzberg, 2019
+	"Planning Under Uncertainty Through Goal-Driven Action Selection"
+	by Juan Carlos Saborio and Joachim Hertzberg, 2019
 
 - Small additions to support the Cellar domain:
     - GeneratePGS rollout policy in Simulator .h/.cpp
