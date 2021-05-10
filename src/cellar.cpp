@@ -816,8 +816,8 @@ void CELLAR::GeneratePGS(const STATE& state, const HISTORY& history,
 	int numLegal = acts.size();
 	
 	double pgs_values[numLegal];
-	double pgs_state = PGS(*oldstate);	
-		
+	double pgs_state = PGS(*oldstate);
+    
 	int max_p = -1;
 	double max_v = -Infinity;	
 	
@@ -885,15 +885,15 @@ void CELLAR::PGSLegal(const STATE& state, const HISTORY& history,
         if (!cellarstate.Bottles[bottle].Collected)
             legal.push_back(E_BOTTLECHECK + bottle);
 	
-	 /*
-      * After LNAI paper: arg max_a \in A pgs(s,a)
-      * where A are uncertainty reducing actions
-	  */
-	 // 'Check' possible for ACTIVE objects without an assumed type		  
-	 for (int obj = 0; obj < NumObjects; ++obj){
+    /*
+     * After LNAI paper: arg max_a \in A pgs(s,a)
+     * where A are uncertainty reducing actions
+     */
+    // 'Check' possible for ACTIVE objects without an assumed type
+    for (int obj = 0; obj < NumObjects; ++obj){
         if(cellarstate.Objects[obj].AssumedType == E_NONE && cellarstate.Objects[obj].active)
             legal.push_back(E_OBJCHECK + obj);
-	 }
+    }
 		  
     //Additional actions for adjacent objects
 	//Push actions for adjacent objects
