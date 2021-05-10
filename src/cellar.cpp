@@ -4,40 +4,58 @@
 using namespace std;
 using namespace UTILS;
 
-CELLAR::CELLAR(int size, int bottles, int shelves, int crates)
-:   Grid(size, size),
-    Size(size),
-    NumBottles(bottles),
-	 NumShelves(shelves),
-	 NumCrates(crates),
-    SmartMoveProb(0.95),
-    UncertaintyCount(0)
+CELLAR::CELLAR(CELLAR_PARAMS& params)
 {
-    
-	 NumObjects = shelves + crates;	 
-	 NumObjectTypes = 2;
-    NumActions = NumBottles + NumObjects + E_SAMPLE+1;
-	 E_OBJCHECK = NumBottles + E_SAMPLE + 1; //First object check action
+    Size = params.size;
+    NumBottles = params.bottles;
+    NumShelves = params.shelves;
+    NumCrates = params.crates;
+
+    Grid = GRID<int>(Size, Size);
+    NumObjects = NumShelves + NumCrates;
+    NumObjectTypes = 2;
+    NumActions = 4; // Movement actions
+    NumActions += 2*(NumBottles + NumObjects); //All samples + checks
+    NumActions += 4*(NumBottles + NumObjects); //All Pushes
+
+    E_SAMPLE = 4; //First sample action
+    E_BOTTLECHECK = E_SAMPLE + NumBottles + NumObjects; //First bottle check
+    E_OBJCHECK = E_BOTTLECHECK + NumBottles; //First object check
+    //E_BOTTLEPUSH = E_OBJCHECK + NumObjects;
+    E_BPUSHNORTH = E_OBJCHECK + NumObjects;
+    E_BPUSHSOUTH = E_BPUSHNORTH + NumBottles;
+    E_BPUSHEAST = E_BPUSHSOUTH + NumBottles;
+    E_BPUSHWEST = E_BPUSHEAST + NumBottles;
+
+    //All object pushes in order
+    //E_OBJPUSH = E_BPUSHWEST + NumBottles;
+    E_PUSHNORTH = E_BPUSHWEST + NumBottles;
+    E_PUSHSOUTH = E_PUSHNORTH + NumObjects;
+    E_PUSHEAST = E_PUSHSOUTH + NumObjects;
+    E_PUSHWEST = E_PUSHEAST + NumObjects;
+
     NumObservations = 3 + NumObjectTypes; //none,good,bad + each object type
     RewardRange = 50; //NOTE: exploration rate recommended to be H_max - H_min, max with c = 0, min with rollouts
-    Discount = 0.99;  //TODO: proper discount horizon?
-	
-	 //RandomSeed(time(NULL));
 
-    if (size == 7 && bottles == 8 && shelves == 7 && crates == 8)
+    Discount = params.discount;    
+    BIN_ENTROPY_LIMIT = params.entropy;    
+
+    //RandomSeed(0);
+
+    if (Size == 7 && NumBottles == 8 && NumShelves == 7 && NumCrates == 8)
         Init_7_8();
-    else if (size == 11 && bottles == 11 && shelves == 15 && crates == 15)
+    else if (Size == 11 && NumBottles == 11 && NumShelves == 15 && NumCrates == 15)
         Init_11_11();
-	 else if (size == 5 && bottles == 1 && shelves == 0 && crates == 4)
-		  Init_5_1();
-	 else if (size == 5 && bottles == 2 && shelves == 0 && crates == 4)
-		  Init_5_2();
+    else if (Size == 5 && NumBottles == 1 && NumShelves == 0 && NumCrates == 4)
+        Init_5_1();
+    else if (Size == 5 && NumBottles == 2 && NumShelves == 6 && NumCrates == 4)
+        Init_5_2();
     else
         InitGeneral();
 }
 
 void CELLAR::Init_5_1(){
-	cout << "Using special layout for cellar(5, 1)" << endl;
+	cout << "Using special layout for cellar[5,1,0,4]" << endl;
 	
 	COORD bottles[] =
 	{
@@ -72,21 +90,29 @@ void CELLAR::Init_5_1(){
 }
 
 void CELLAR::Init_5_2(){
-	cout << "Using special layout for cellar(5, 2)" << endl;
+	cout << "Using special layout for cellar[5, 2, 6, 4] -- Ftable test" << endl;
 	
 	COORD bottles[] =
 	{		
-		COORD(2, 2),
-		COORD(0, 0)
+		COORD(1, 4),
+		COORD(2, 0)
 	};
 	
 	COORD objects[] =
 	{ 
+		//Shelves		
+		COORD(0, 4),
+		COORD(1, 0),
+		COORD(2, 4),
+		COORD(3, 0),
+		COORD(3, 4),
+		COORD(4, 0),
+		
 		//Crates
-		COORD(1, 2),
+		COORD(0, 1),
+		COORD(1, 3),
 		COORD(2, 1),
-		COORD(2, 3),
-		COORD(3, 2)	
+		COORD(4, 3)	
     };
 	 
 	HalfEfficiencyDistance = 20;
@@ -110,48 +136,47 @@ void CELLAR::Init_5_2(){
 }
 
 void CELLAR::Init_7_8(){
-	cout << "Using special layout similar to rocksample(7, 8)" << endl;
-	
-	COORD bottles[] =
-	{
-	  COORD(0, 4),
-	  COORD(1, 1),
-	  COORD(1, 6),
-	  COORD(3, 0),
-	  COORD(3, 6),
-	  COORD(5, 0),
-	  COORD(5, 6),
-	  COORD(6, 5)
-	};
-	
-	COORD objects[] =
-	{
-		//Shelves
-		COORD(0, 3),
-      COORD(0, 5),
-      COORD(1, 0),
-		COORD(2, 6),
-		COORD(4, 0),
-		COORD(4, 6),
-		COORD(6, 0),
-		 
-		//Crates
-		COORD(0, 1),
-		COORD(1, 4),
-		COORD(2, 1),
-		COORD(3, 1),
-		COORD(3, 5),
-		COORD(4, 3),
-		COORD(5, 1),
-		COORD(5, 4)
+    cout << "Using special layout for cellar[7,8,7,8]" << endl;
+
+    COORD bottles[] =
+    {
+        COORD(0, 4),
+        COORD(1, 1),
+        COORD(1, 6),
+        COORD(3, 0),
+        COORD(3, 6),
+        COORD(5, 0),
+        COORD(5, 6),
+        COORD(6, 5)
+    };
+
+    COORD objects[] =
+    {
+        //Shelves
+        COORD(0, 3),
+        COORD(0, 5),
+        COORD(1, 0),
+        COORD(2, 6),
+        COORD(4, 0),
+        COORD(4, 6),
+        COORD(6, 0), 
+        //Crates
+        COORD(0, 1),
+        COORD(1, 4),
+        COORD(2, 1),
+        COORD(3, 1),
+        COORD(3, 5),
+        COORD(4, 3),
+        COORD(5, 1),
+        COORD(5, 4)
     };
 	 
-	HalfEfficiencyDistance = 20;
-	StartPos = COORD(0, 2);
-	Grid.SetAllValues(-1);
-	for (int i = 0; i < NumBottles; ++i)
+    HalfEfficiencyDistance = 20;
+    StartPos = COORD(0, 2);
+    Grid.SetAllValues(-1);
+    for (int i = 0; i < NumBottles; ++i)
 	{
-		Grid(bottles[i]) = i;
+        Grid(bottles[i]) = i;
 		BottlePos.push_back(bottles[i]);
 	}
 	for (int i = 0; i < NumObjects; ++i)
@@ -165,13 +190,8 @@ void CELLAR::Init_7_8(){
 }
 
 void CELLAR::Init_11_11(){
-	// Equivalent to RockSample_11_11.pomdp(x)
-    cout << "Using special layout similar to rocksample(11, 11)" << endl;
+    cout << "Using special layout for cellar[11,11,15,15]" << endl;
 
-	 /*NumShelves = 15;
-	 NumCrates = 15;
-	 NumObjects = NumShelves + NumCrates;*/
-	
     COORD bottles[] =
     {
         COORD(0, 3),
@@ -187,42 +207,40 @@ void CELLAR::Init_11_11(){
         COORD(9, 9)
     };
 	 
-	 COORD objects[] =
+    COORD objects[] =
     {
-		 //Shelves
-		  COORD(0, 0),
+        //Shelves
+        COORD(0, 0),
         COORD(0, 10),
         COORD(1, 0),
-		  COORD(1, 10),
-		  COORD(2, 0),
-		  COORD(2, 6),
- 		  COORD(2, 10),        
+        COORD(1, 10),
+        COORD(2, 0),
+        COORD(2, 6),
+        COORD(2, 10),        
         COORD(3, 6),        
         COORD(4, 5),
-		  COORD(4, 6),
-		  COORD(4, 7),
-		  COORD(10, 0),
-		  COORD(10, 1),
-		  COORD(10, 2),
-		  COORD(10, 3),
-		  
-		 
-		 //Crates
-		  COORD(0, 8),
-		  COORD(1, 3),
-		  COORD(1, 5),
-		  COORD(1, 7),		  
-		  COORD(4, 2),
-		  COORD(4, 8),
-		  COORD(5, 1),
-		  COORD(5, 2),
-		  COORD(5, 5),
-		  COORD(6, 5),
-		  COORD(7, 5),
-		  COORD(7, 8),
-		  COORD(8, 2),
-		  COORD(8, 8),
-		  COORD(9, 7)
+        COORD(4, 6),
+        COORD(4, 7),
+        COORD(10, 0),
+        COORD(10, 1),
+        COORD(10, 2),
+        COORD(10, 3),
+        //Crates
+        COORD(0, 8),
+        COORD(1, 3),
+        COORD(1, 5),
+        COORD(1, 7),		  
+        COORD(4, 2),
+        COORD(4, 8),
+        COORD(5, 1),
+        COORD(5, 2),
+        COORD(5, 5),
+        COORD(6, 5),
+        COORD(7, 5),
+        COORD(7, 8),
+        COORD(8, 2),
+        COORD(8, 8),
+        COORD(9, 7)
     };
 
     HalfEfficiencyDistance = 20;
@@ -243,17 +261,17 @@ void CELLAR::Init_11_11(){
     }
 }
 
-/*
-	The Grid exists for consistency across start states.  This way multiple (starting) instances of the same problem (ie. object location)
-can be created.  This is used when creating state samples for belief state.
-*/
+/* 
+ * Initialize a start state based on the configuration in Grid.
+ * Useful to create state samples for the belief state and for consistent performance experiments.
+ */
 void CELLAR::InitGeneral()
 {
     HalfEfficiencyDistance = 20;
     StartPos = COORD(0, Size / 2);
     RandomSeed(0);
     Grid.SetAllValues(-1);
-	//Place Bottles
+    //Place Bottles
     for (int i = 0; i < NumBottles; ++i)
     {
         COORD pos;
@@ -265,36 +283,22 @@ void CELLAR::InitGeneral()
         Grid(pos) = i;
         BottlePos.push_back(pos);
     }
-	 	 
-	 //Place Objects
-	 
-	 for (int i = 0; i < NumObjects; ++i)
+
+	 //Place Objects	 
+    for (int i = 0; i < NumObjects; ++i)
     {
-      COORD pos;
-      do
-      {
-          pos = COORD(Random(Size), Random(Size));
-      }
-      while (Grid(pos) != -1 || pos == StartPos);
-      if(i < NumShelves)
-			Grid(pos) = 100+E_SHELF;
-		else
-			Grid(pos) = 100+E_CRATE;
-		ObjectPos.push_back(pos);
+        COORD pos;
+        do
+        {
+            pos = COORD(Random(Size), Random(Size));
+        }
+        while (Grid(pos) != -1 || pos == StartPos);
+        if(i < NumShelves)
+            Grid(pos) = 100+E_SHELF;
+        else
+            Grid(pos) = 100+E_CRATE;
+        ObjectPos.push_back(pos);
     }
-	 
-	 /*
-	 for (int i = 0; i < NumCrates; ++i)
-    {
-      COORD pos;
-      do
-      {
-          pos = COORD(Random(Size), Random(Size));
-      }
-      while (Grid(pos) != -1);
-      //Grid(pos) = 100 + NumShelves +i; //Start counting at 100 for objects
-		ObjectPos.push_back(pos);
-    }*/
 }
 
 STATE* CELLAR::Copy(const STATE& state) const
@@ -315,21 +319,21 @@ STATE* CELLAR::CreateStartState() const
 {
     CELLAR_STATE* cellarstate = MemoryPool.Allocate();
     cellarstate->AgentPos = StartPos;
-	 cellarstate->CollectedBottles = 0;
+    cellarstate->CollectedBottles = 0;
     cellarstate->Bottles.clear();
-	 cellarstate->Objects.clear();
+    cellarstate->Objects.clear();
 	
     for (int i = 0; i < NumBottles; i++)
     {
         CELLAR_STATE::ENTRY entry;
         entry.Collected = false;
-		  if(NumBottles <= 2){
-			  //For the special cases with 1 and 2 bottles, make sure the first one is always good and the second one bad
-				entry.Valuable = (i == 0)? 1 : 0;				
-		  }
-		  else
-				entry.Valuable = Bernoulli(0.5);
-		  
+        if(NumBottles <= 2){
+            //For the special cases with 1 and 2 bottles, make sure the first one is always good and the second one bad
+            entry.Valuable = 1; //(i == 0)? 1 : 0;				
+        }
+        else
+            entry.Valuable = Bernoulli(0.5);
+        
         entry.Count = 0;
         entry.Measured = 0;
         entry.ProbValuable = 0.5;
@@ -338,61 +342,23 @@ STATE* CELLAR::CreateStartState() const
         cellarstate->Bottles.push_back(entry);
     }
 	 
-	 /*
-		TODO: This array must be managed online when objects are:
-			1) Discovered
-			2) Considered irrelevant
-	 
-		In the Step function, when action is "search" (or w/e) and observation is an object,
-	 it should be added with some probability.
-	 
-		It could either:
-			a) Detect the object accurately and estimate its usefulness (discard or not)
-			b) Try to detect its type AND usefulness
-	 */	 
-	 //COORD pos;
-	 /*std::vector<int> types;	 
-	 for(int i=0;i<NumShelves;i++) types.push_back(E_SHELF);
-	 for(int i=0;i<NumCrates;i++) types.push_back(E_CRATE);	 
-	 std::random_shuffle(types.begin(), types.end());*/
-	 for (int i = 0; i < NumObjects; i++)
+    for (int i = 0; i < NumObjects; i++)
     {
         CELLAR_STATE::OBJ_ENTRY entry;
         entry.Type = Grid(ObjectPos[i])-100; //types[i];
-		  /*do{
-				pos = COORD(Random(Size), Random(Size));
-		  }while(!EmptyTile(*cellarstate, pos));*/
         entry.ObjPos = ObjectPos[i];
         entry.Count = 0;
         entry.Measured = 0;
         entry.ProbCrate = 0.5;
         entry.LikelihoodCrate = 1.0;
         entry.LikelihoodShelf = 1.0;
-		  entry.AssumedType = E_NONE;
+        entry.AssumedType = E_NONE;
+        entry.active = true;
         cellarstate->Objects.push_back(entry);
     }
-	 /*
-	 for (int i = NumShelves; i < NumObjects; i++)
-    {
-        CELLAR_STATE::OBJ_ENTRY entry;
-        entry.Type = E_CRATE;
-		  do{
-				pos = COORD(Random(Size), Random(Size));
-		  }while(!EmptyTile(*cellarstate, pos));
-        entry.ObjPos = ObjectPos[i];
-        entry.Count = 0;
-        entry.Measured = 0;
-        entry.ProbCrate = 0.5;
-        entry.LikelihoodCrate = 1.0;
-        entry.LikelihoodShelf = 1.0;
-        cellarstate->Objects.push_back(entry);
-    }*/
-	 
-	 assert(cellarstate->Objects.size() == NumObjects);
-    //cellarstate->Target = SelectTarget(*cellarstate);
-    
-	 
-	 return cellarstate;
+
+    assert(cellarstate->Objects.size() == NumObjects);
+    return cellarstate;
 }
 
 void CELLAR::FreeState(STATE* state) const
@@ -413,10 +379,14 @@ bool CELLAR::Step(STATE& state, int action,
 		 return StepNormal(state, action, observation, reward);
 }
 
-/*** Added by JCS
-
-		Step function with new reward distribution using PGS action biases
-***/
+/*
+ * Step function with PGS PBRS
+ *
+ * Performs regular step and adds the reward bonus
+ *      gamma*phi(s') - phi(s)
+ * where phi(s) = alpha*PGS(s) and gamma = 1
+ *
+ */
 bool CELLAR::StepPGS(STATE& state, int action,
     int& observation, double& reward) const
 {
@@ -426,16 +396,13 @@ bool CELLAR::StepPGS(STATE& state, int action,
 	STATE* oldstate = Copy(state);	
 	
 	bool result = StepNormal(state, action, observation, reward);
-	 // Potential-based reward bonus
-	
+    
+    // Potential-based reward bonus	
 	if(reward != -100){//Not terminal or out of bounds
-		r2 = PGS(*oldstate);
-		r = PGS_RO(*oldstate, state, action, r2);
-		
-		
-		//cout << "reward = " << reward << ", r1 = " << r << ", r2 = " << r2 << endl;
-				
-		reward += scale*r - scale*r2;
+        r2 = PGS(*oldstate);
+        r = PGS_RO(*oldstate, state, action, r2);
+        //cout << "reward = " << reward << ", r1 = " << r << ", r2 = " << r2 << endl;				
+        reward += scale*r - scale*r2;
 	}
 	FreeState(oldstate);
 	
@@ -443,7 +410,8 @@ bool CELLAR::StepPGS(STATE& state, int action,
 }
 
 /*
-	TODO: punishment for all non-rewarded actions? Eg. checking, etc.  The idea is they take time.
+ * Regular step function.  Simulates transition from state with action and returns observation and reward
+ * Note: added punishment for running into objects
 */
 bool CELLAR::StepNormal(STATE& state, int action,
     int& observation, double& reward) const
@@ -451,76 +419,88 @@ bool CELLAR::StepNormal(STATE& state, int action,
     CELLAR_STATE& cellarstate = safe_cast<CELLAR_STATE&>(state);
     reward = 0;
     observation = E_NONE;
-	
-	 double reward_check = -0.5;
-	 int reward_move = -1;
-	 int reward_push = -2;
-	
-	 int reward_sample = 10;
-	 int reward_terminal = 10;
-	 int punishment = -10;
-	 int outOfBounds = -100;
+    
+    // Cellar reward distribution
+    double reward_check = -0.5;
+    int reward_move = -1;
+    int reward_push = -2;
+    int reward_sample = 10;
+    int reward_terminal = 10;
+    int punishment = -10;
+    int outOfBounds = -100;
 
-    if (action < E_PUSHNORTH) // move
+    /*
+     * Movement actions
+     */
+    if (action < E_SAMPLE)
     {
-		  COORD pos;
-		  reward = reward_move; //NOTE: movement punishment
+        COORD pos;
+        reward = reward_move;
+
         switch (action)
         {
             case COORD::E_EAST:
-					 pos = COORD(cellarstate.AgentPos.X+1, cellarstate.AgentPos.Y);
+                pos = COORD(cellarstate.AgentPos.X+1, cellarstate.AgentPos.Y);
                 if (cellarstate.AgentPos.X + 1 < Size){
-						 if(FreeTile(cellarstate, pos)) cellarstate.AgentPos.X++;
-                   break;
-					 }
-                else
-                {// Maze exit
-						if(cellarstate.CollectedBottles){
-                    reward = reward_terminal;
-                    return true;
-						}
-						break;
+                    if(FreeTile(cellarstate, pos)) cellarstate.AgentPos.X++;
+                    else reward = punishment;
+                    break;
                 }
-					 
+                else{// Maze exit
+                    if(cellarstate.CollectedBottles >= 1){
+                        reward = reward_terminal;
+                        //reward = cellarstate.CollectedBottles * reward_terminal;
+
+                        return true;
+                    }
+                    break;
+                }
+
             case COORD::E_NORTH:
-					 pos = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y+1);
+                pos = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y+1);
                 if (cellarstate.AgentPos.Y + 1 < Size){
-						  if(FreeTile(cellarstate, pos)) cellarstate.AgentPos.Y++;
-					 }
+                    if(FreeTile(cellarstate, pos)) cellarstate.AgentPos.Y++;
+                    else reward = punishment;
+                }
                 else
                     reward = outOfBounds;
                 break;
 
             case COORD::E_SOUTH:
-					 pos = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y-1);
+				pos = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y-1);
                 if (cellarstate.AgentPos.Y - 1 >= 0){
-						 if(FreeTile(cellarstate, pos)) cellarstate.AgentPos.Y--;
-					 }
+                    if(FreeTile(cellarstate, pos)) cellarstate.AgentPos.Y--;
+                    else reward = punishment;
+                }
                 else
                     reward = outOfBounds;
                 break;
 
             case COORD::E_WEST:
-					 pos = COORD(cellarstate.AgentPos.X-1, cellarstate.AgentPos.Y);
+				pos = COORD(cellarstate.AgentPos.X-1, cellarstate.AgentPos.Y);
                 if (cellarstate.AgentPos.X - 1 >= 0){
-						if(FreeTile(cellarstate, pos)) cellarstate.AgentPos.X--;
-					 }
+                    if(FreeTile(cellarstate, pos)) cellarstate.AgentPos.X--;
+                    else reward = punishment;
+                }
                 else
                     reward = outOfBounds;
                 break;
         }
-    }
+    } // End movement
 
-    if (action == E_SAMPLE) // sample
+    /*
+     * Sample
+     */
+    if (action >= E_SAMPLE && action < E_BOTTLECHECK)        
     {
         int bottle = Grid(cellarstate.AgentPos);
         if (bottle >= 0 && bottle < NumBottles && !cellarstate.Bottles[bottle].Collected)
         {
             cellarstate.Bottles[bottle].Collected = true;
             if (cellarstate.Bottles[bottle].Valuable){
-					reward = reward_sample;
-					cellarstate.CollectedBottles++;
-				}
+                reward = reward_sample;
+                cellarstate.CollectedBottles++;
+            }
             else
                 reward = punishment;
         }
@@ -528,38 +508,50 @@ bool CELLAR::StepNormal(STATE& state, int action,
         {
             reward = outOfBounds;
         }
-    }
+    } // End sample
 	 
-	 /* Push actions:
-			- Crates cannot be pushed outside of the grid
-			- Shelves cannot be budged and yield -10 reward
-			- Pushing a crate moves it in the desired direction unless it's blocked by another object				
-	 */
-	if(action >= E_PUSHNORTH && action < E_SAMPLE){
+    /* Push actions:
+        - Crates cannot be pushed outside of the grid
+        - Shelves cannot be budged and yield -10 reward
+        - Pushing a crate moves it in the desired direction unless it's blocked by another object				
+    */
+	if(action >= E_BPUSHNORTH){
 		COORD pos1;
 		COORD pos2;
 		int offsetX = 0;
 		int offsetY = 0;
-		switch(action){
-			case E_PUSHNORTH:
+		
+		int actionRange = A_PUSHNORTH;
+		if(action < E_PUSHNORTH){ //if pushing bottles
+            if(action >= E_BPUSHWEST) actionRange = A_PUSHWEST;
+            else if(action >= E_BPUSHEAST) actionRange = A_PUSHEAST;
+            else if(action >= E_BPUSHSOUTH) actionRange = A_PUSHSOUTH;
+		}
+		else if(action >= E_PUSHWEST) actionRange = A_PUSHWEST;
+		else if(action >= E_PUSHEAST) actionRange = A_PUSHEAST;
+		else if(action >= E_PUSHSOUTH) actionRange = A_PUSHSOUTH;
+				
+		
+		switch(actionRange){
+			case A_PUSHNORTH:
 				pos1 = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y+1);
 				pos2 = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y+2);
-				offsetX = 0;
-				offsetY = 1;
+                offsetX = 0;
+                offsetY = 1;
 				break;
-			case E_PUSHSOUTH:
+			case A_PUSHSOUTH:
 				pos1 = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y-1);
 				pos2 = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y-2);
 				offsetX = 0;
 				offsetY = -1;
 				break;
-			case E_PUSHWEST:
+			case A_PUSHWEST:
 				pos1 = COORD(cellarstate.AgentPos.X-1, cellarstate.AgentPos.Y);
 				pos2 = COORD(cellarstate.AgentPos.X-2, cellarstate.AgentPos.Y);
 				offsetX = -1;
 				offsetY = 0;
 				break;
-			case E_PUSHEAST:
+			case A_PUSHEAST:
 				pos1 = COORD(cellarstate.AgentPos.X+1, cellarstate.AgentPos.Y);
 				pos2 = COORD(cellarstate.AgentPos.X+2, cellarstate.AgentPos.Y);
 				offsetX = 1;
@@ -567,11 +559,11 @@ bool CELLAR::StepNormal(STATE& state, int action,
 				break;
 		}
 	
-	 /* Push crate and move agent IF: 
-		 - there is a crate is the request direction
-		 - the crate will end up inside the grid
-		 - the crate will end up on an empty cell
-		*/
+        /* Push crate and move agent IF: 
+         * - there is a crate in the requested direction
+         * - the crate will end up inside the grid
+         * - the crate will end up on an empty cell
+		 */
 		if (Grid.Inside(pos1)){
 			if(CrateAt(cellarstate, pos1) && Grid.Inside(pos2) && EmptyTile(cellarstate, pos2)){
 				int objNum = ObjectNumber(cellarstate, pos1);				
@@ -584,24 +576,25 @@ bool CELLAR::StepNormal(STATE& state, int action,
 				cellarstate.Objects[objNum].ObjPos.X += offsetX;
 				cellarstate.Objects[objNum].ObjPos.Y += offsetY;
 				
-				// TODO: Reward pushing CRATES?
-				reward = reward_push; //NOTE: Same as move, to prevent pushing crates around for no reason
+				reward = reward_push; //Push cost punishment
 			}
-			else// if(ShelfAt(cellarstate, pos1)) //Pushing a shelf
+			else
 				reward = punishment;
-			//TODO: pushing breaks bottles? (ie not valuable)
 		}
-	}
+	} //End push actions
 
-    if (action > E_SAMPLE && action < E_OBJCHECK) // Bottle check
+    /*
+     * Bottle checks
+     */
+	if (action >= E_BOTTLECHECK && action < E_OBJCHECK)
     {
-        int bottle = action - E_SAMPLE - 1;
+        int bottle = action - E_BOTTLECHECK;
         assert(bottle < NumBottles);
         observation = GetObservation(cellarstate, bottle, 1);
         cellarstate.Bottles[bottle].Measured++;
 
         double distance = COORD::EuclideanDistance(cellarstate.AgentPos, BottlePos[bottle]);
-    	  double efficiency = (1 + pow(2, -distance / HalfEfficiencyDistance)) * 0.5;
+        double efficiency = (1 + pow(2, -distance / HalfEfficiencyDistance)) * 0.5;
 
         if (observation == E_GOOD)
         {
@@ -615,27 +608,29 @@ bool CELLAR::StepNormal(STATE& state, int action,
             cellarstate.Bottles[bottle].Count--;
             cellarstate.Bottles[bottle].LikelihoodWorthless *= efficiency;
             cellarstate.Bottles[bottle].LikelihoodValuable *= 1.0 - efficiency;
-		  }
-		double denom = (0.5 * cellarstate.Bottles[bottle].LikelihoodValuable) +
-			(0.5 * cellarstate.Bottles[bottle].LikelihoodWorthless);
+        }
+		double denom = (0.5 * cellarstate.Bottles[bottle].LikelihoodValuable) + 
+                        (0.5 * cellarstate.Bottles[bottle].LikelihoodWorthless);
 		cellarstate.Bottles[bottle].ProbValuable = (0.5 * cellarstate.Bottles[bottle].LikelihoodValuable) / denom;
-		  
-		  //NOTE: Check action punishment
-		  reward = reward_check;
-    }
+
+        reward = reward_check;
+    } //End bottle checks
 	 
-	 // Check object returns a noisy reading of the type
-	 // Approx. probability of object being a crate
-	 if (action >= E_OBJCHECK) // Object check
+	 
+	 /*
+      * Object checks
+      * Check object returns a noisy reading (crate, no crate) 
+      */
+    if (action >= E_OBJCHECK && action < E_BPUSHNORTH) // Object check
     {
         int obj = action - E_OBJCHECK;
         assert(obj < NumObjects);
-		 
+
         observation = GetObservation(cellarstate, obj, 2);
         cellarstate.Objects[obj].Measured++;
 
         double distance = COORD::EuclideanDistance(cellarstate.AgentPos, cellarstate.Objects[obj].ObjPos);
-    	  double efficiency = (1 + pow(2, -distance / HalfEfficiencyDistance)) * 0.5;
+        double efficiency = (1 + pow(2, -distance / HalfEfficiencyDistance)) * 0.5;
 
         if (observation == E_CRATE)
         {
@@ -651,7 +646,7 @@ bool CELLAR::StepNormal(STATE& state, int action,
             cellarstate.Objects[obj].LikelihoodCrate *= 1.0 - efficiency;
 		}
 		double denom = (0.5 * cellarstate.Objects[obj].LikelihoodCrate) +
-			(0.5 * cellarstate.Objects[obj].LikelihoodShelf);
+                        (0.5 * cellarstate.Objects[obj].LikelihoodShelf);
 		cellarstate.Objects[obj].ProbCrate = (0.5 * cellarstate.Objects[obj].LikelihoodCrate) / denom;
 		
 		//As soon as entropy is reduced, assume the closest type
@@ -659,7 +654,7 @@ bool CELLAR::StepNormal(STATE& state, int action,
 			double p = cellarstate.Objects[obj].ProbCrate;
 			double binaryEntropy = -1*p*log2(p) - (1-p)*log2(1-p);
 		
-			if(binaryEntropy <= 0.5){
+			if(binaryEntropy <= CELLAR::BIN_ENTROPY_LIMIT){
 				//cout << "For object " << obj << " ";
 				if(round(cellarstate.Objects[obj].ProbCrate)){
 					cellarstate.Objects[obj].AssumedType = E_CRATE;
@@ -673,29 +668,13 @@ bool CELLAR::StepNormal(STATE& state, int action,
 		}
 		//Note: Check action punishment
 		reward = reward_check;
-    }
-	 
-	 
-/*
-    if (cellarstate.Target < 0 || cellarstate.AgentPos == BottlePos[cellarstate.Target])
-        cellarstate.Target = SelectTarget(cellarstate);*/
+    } //End object checks
 
-    //assert(reward != -100);
-	 if(reward == -100){
-			DisplayState(cellarstate, cout);
-		   DisplayAction(action, cout);
-		   int x = Size - cellarstate.AgentPos.Y;
-			int y = cellarstate.AgentPos.X + 1;
-		   cout << "AgentPos: " << cellarstate.AgentPos << endl;
-		   cout << "Grid(" << x << "," << y <<") : "<< Grid(cellarstate.AgentPos) << endl;
-		   if(Grid(cellarstate.AgentPos) >= 0 && Grid(cellarstate.AgentPos) < NumBottles) cout << "Bottle collected? " << cellarstate.Bottles[Grid(cellarstate.AgentPos)].Collected << endl;
-		 assert(reward != -100);
-	 }
     return false;
 }
 
 
-//TODO: figure out local object transformations for cellar domain
+//Validate state transformations in Cellar
 bool CELLAR::LocalMove(STATE& state, const HISTORY& history,
     int stepObs, const STATUS& status) const
 {
@@ -703,59 +682,59 @@ bool CELLAR::LocalMove(STATE& state, const HISTORY& history,
     int bottle, obj;
 	
 	//Modify bottle
-		bottle = Random(NumBottles);
-		cellarstate.Bottles[bottle].Valuable = !cellarstate.Bottles[bottle].Valuable;	
-	 /*if(Random(2)){
 	
-	 }
-	 else{
-		//Modify a random object
-		obj = Random(NumObjects);
-		if(cellarstate.Objects[obj].Type == E_CRATE)
-			cellarstate.Objects[obj].Type = E_SHELF;
-		else
-			cellarstate.Objects[obj].Type = E_CRATE;
-	 }*/
+	bottle = Random(NumBottles);
+	cellarstate.Bottles[bottle].Valuable = !cellarstate.Bottles[bottle].Valuable;	
+
+	//Modify a random object
+	obj = Random(NumObjects);
+	if(cellarstate.Objects[obj].Type == E_CRATE)
+		cellarstate.Objects[obj].Type = E_SHELF;
+	else
+		cellarstate.Objects[obj].Type = E_CRATE;
+
 	 
-    if (history.Back().Action > E_SAMPLE) // check
+    if (history.Back().Action >= E_BOTTLECHECK) // check
     {
-		if(history.Back().Action < E_OBJCHECK){		  
-        bottle = history.Back().Action - E_SAMPLE - 1;
-        int realObs = history.Back().Observation;
+        if(history.Back().Action < E_OBJCHECK){
+            bottle = history.Back().Action - E_BOTTLECHECK;
+            int realObs = history.Back().Observation;
 
-        // Condition new state on real observation
-        int newObs = GetObservation(cellarstate, bottle, 1);
-        if (newObs != realObs)
-            return false;
+            // Condition new state on real observation
+            int newObs = GetObservation(cellarstate, bottle, 1);
+            if (newObs != realObs)
+                return false;
 
-        // Update counts to be consistent with real observation
-        if (realObs == E_GOOD && stepObs == E_BAD)
-            cellarstate.Bottles[bottle].Count += 2;
-        if (realObs == E_BAD && stepObs == E_GOOD)
-            cellarstate.Bottles[bottle].Count -= 2;		  
-	   }
-		else{				
-			//Compare with last observation for consistency with history
-		  obj = history.Back().Action - E_OBJCHECK;
-        int realObs = history.Back().Observation;
+            // Update counts to be consistent with real observation
+            if (realObs == E_GOOD && stepObs == E_BAD)
+                cellarstate.Bottles[bottle].Count += 2;
+            if (realObs == E_BAD && stepObs == E_GOOD)
+                cellarstate.Bottles[bottle].Count -= 2;		  
+        }
+        else{
+            //Compare with last observation for consistency with history
+            obj = history.Back().Action - E_OBJCHECK;
+            int realObs = history.Back().Observation;
 
-        // Condition new state on real observation
-        int newObs = GetObservation(cellarstate, obj, 2);
-        if (newObs != realObs)
-            return false;
+            // Condition new state on real observation
+            int newObs = GetObservation(cellarstate, obj, 2);
+            if (newObs != realObs)
+                return false;
 
-        // Update counts to be consistent with real observation
-        if (realObs == E_CRATE && stepObs == E_SHELF)
-            cellarstate.Objects[obj].Count += 2;
-        if (realObs == E_SHELF && stepObs == E_CRATE)
-            cellarstate.Objects[obj].Count -= 2;	
-		}
+            // Update counts to be consistent with real observation
+            if (realObs == E_CRATE && stepObs == E_SHELF)
+                cellarstate.Objects[obj].Count += 2;
+            if (realObs == E_SHELF && stepObs == E_CRATE)
+                cellarstate.Objects[obj].Count -= 2;	
+        }
     }
 	 
     return true;
 }
 
-/*** PGS Rollout policy ***/
+/* PGS point count in rollouts
+ * Simplified by computing only the difference
+ */
 double CELLAR::PGS_RO(STATE& oldstate, STATE& state, int action, double oldpgs) const
 {
 	double points = 0.0;
@@ -766,38 +745,26 @@ double CELLAR::PGS_RO(STATE& oldstate, STATE& state, int action, double oldpgs) 
 	CELLAR_STATE& oldcellarstate = safe_cast<CELLAR_STATE&>(oldstate);
 	
 	int bottle = -1;
-	if(action == E_SAMPLE){
+	if(action >= E_SAMPLE && action < E_BOTTLECHECK){
 		bottle = Grid(cellarstate.AgentPos);
 		if (cellarstate.Bottles[bottle].Valuable){
 			if(cellarstate.Bottles[bottle].Count)
 				points++; //+1 for sampling rocks w/ good observations
 		}
 		else points--;
-		
 	}
-	else if (action > E_SAMPLE && action < E_OBJCHECK){ //Bottle check
-		bottle = action - E_SAMPLE - 1;
+	else if (action >= E_BOTTLECHECK && action < E_OBJCHECK){ //Bottle check
+		bottle = action - E_BOTTLECHECK;
 		double p = cellarstate.Bottles[bottle].ProbValuable;
 		double binaryEntropy = -1*p*log2(p) - (1-p)*log2(1-p);
-		if(binaryEntropy > 0.5) points--;
+		if(binaryEntropy > CELLAR::BIN_ENTROPY_LIMIT) points--;
 		
 		p = oldcellarstate.Bottles[bottle].ProbValuable;
 		double oldBinaryEntropy = -1*p*log2(p) - (1-p)*log2(1-p);
-		if(oldBinaryEntropy > 0.5) oldpoints--;
+		if(oldBinaryEntropy > CELLAR::BIN_ENTROPY_LIMIT) oldpoints--;
 		//else points -= 0.5;
 	}
-/*	else if (action >= E_OBJCHECK){ //Object check
-		int obj = action - E_OBJCHECK;
-		if(cellarstate.Objects[obj].AssumedType == E_NONE) points--;
-		if(oldcellarstate.Objects[obj].AssumedType == E_NONE) oldpoints--;
-		//else points--;
-	}
-	*/
-	// TODO: verify this thing.
-	// Bonus points for proximity to promising bottles
-	//for(int bottle=0; bottle<NumBottles; ++bottle)
-	//	if(COORD::EuclideanDistance(BottlePos[bottle], cellarstate.AgentPos) <= 1 && cellarstate.Bottles[bottle].Count) points += 0.25;
-	
+
 	//Update difference for current bottle
 	double result = oldpgs - oldpoints + points;
 
@@ -805,11 +772,9 @@ double CELLAR::PGS_RO(STATE& oldstate, STATE& state, int action, double oldpgs) 
 }
 
 
-// PGS score
-// TODO: find a better way to encourage good checking
 /*
-	THINK: is it an error to deduct points if(entropy)? Should it be entropy OR not measured?
-*/
+ * PGS point count
+ */
 double CELLAR::PGS(STATE& state) const
 {
 	double points = 0.0;
@@ -830,27 +795,16 @@ double CELLAR::PGS(STATE& state) const
 		else{
 			double p = cellarstate.Bottles[bottle].ProbValuable;
 			double binaryEntropy = -1*p*log2(p) - (1-p)*log2(1-p);
-			if(binaryEntropy > 0.5) points--;
-			
-			// TODO: verify this thing.
-			// Bonus points for proximity to promising bottles
-			//if(COORD::EuclideanDistance(BottlePos[bottle], cellarstate.AgentPos) <= 1 &&	cellarstate.Bottles[bottle].Count) points += 0.25;
+			if(binaryEntropy > CELLAR::BIN_ENTROPY_LIMIT) points--;
 		}
 	}
 	
-	//3. Punishment for uncertainty of objects
-	//TODO: maybe punishing ALL objects is counter productive because the agent will try to check ALL of them.
-	// In large problems like 11x11, this might be causing performance to drag.
-/*
-	for(int obj=0; obj < NumObjects; ++obj){
-		if(cellarstate.Objects[obj].AssumedType == E_NONE) points--;
-	}
-	*/
 	return points;
 }
 
-// PGS Rollout policy
-// Computes PGS only for non Checking actions
+/* PGS Rollout policy
+ * Computes PGS only for non Checking actions
+ */
 void CELLAR::GeneratePGS(const STATE& state, const HISTORY& history,
     vector<int>& legal, const STATUS& status) const
 {
@@ -858,35 +812,27 @@ void CELLAR::GeneratePGS(const STATE& state, const HISTORY& history,
 	acts.clear();
 	STATE * newstate;
 	STATE * oldstate = Copy(state);
-	PGSLegal(state, history, acts, status);
+	PGSLegal(state, history, acts, status); //Use reduced action set
 	int numLegal = acts.size();
-	//STATE * newstate = new STATE*[numLegal];
-	//for(int i=0; i<numLegal; i++) newstates[i] = Copy(state);
 	
-	double pgs_values[numLegal]; //pgs_values[i] <-- legalMove[i]
-	double pgs_state = PGS(*oldstate);	
-		
+	double pgs_values[numLegal];
+	double pgs_state = PGS(*oldstate);
+    
 	int max_p = -1;
 	double max_v = -Infinity;	
 	
 	int observation;
 	double reward;
-	
-	//cout << "Generating PGS values..." << endl;
-	//cout << "Found " << numLegal << " legal actions." << endl;
 		
-	for(unsigned int i=0; i<numLegal; i++){		
+	for(unsigned int i=0; i<numLegal; i++){
 		newstate = Copy(state);
 		
 		StepNormal(*newstate, acts[i], observation, reward); //Simulate transition with action a
 		
-		// Using regular PGS (slow)
-		//pgs_values[i] = PGS(*newstate);
-		
-		// Adding only PGS differences (fast)
+		// Compute new PGS count
 		pgs_values[i] = PGS_RO(*oldstate, *newstate, acts[i], pgs_state); //add differences
 
-		FreeState(newstate);		
+		FreeState(newstate);
 	}
 	
 	FreeState(oldstate);
@@ -898,32 +844,29 @@ void CELLAR::GeneratePGS(const STATE& state, const HISTORY& history,
 	// Add other maxima
 	for(int i=0; i<numLegal; i++){
 		if(i != max_p && pgs_values[i] == max_v)
-		//if(pgs_values[i] >= 0.5)
-			legal.push_back(acts[i]);
+            legal.push_back(acts[i]);
 	}
 
-	//cout << "found " << legal.size() << " rollout actions " << endl;
 }
 
 void CELLAR::PGSLegal(const STATE& state, const HISTORY& history,
     vector<int>& legal, const STATUS& status) const
 {
 
-    const CELLAR_STATE& cellarstate =
-        safe_cast<const CELLAR_STATE&>(state);
+    const CELLAR_STATE& cellarstate = safe_cast<const CELLAR_STATE&>(state);
 
-	 COORD pos = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y);
-	 COORD posN = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y+1);
-	 COORD posS = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y-1);
-	 COORD posW = COORD(cellarstate.AgentPos.X-1, cellarstate.AgentPos.Y);
-	 COORD posE = COORD(cellarstate.AgentPos.X+1, cellarstate.AgentPos.Y);		
+    COORD pos = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y);
+    COORD posN = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y+1);
+    COORD posS = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y-1);
+    COORD posW = COORD(cellarstate.AgentPos.X-1, cellarstate.AgentPos.Y);
+    COORD posE = COORD(cellarstate.AgentPos.X+1, cellarstate.AgentPos.Y);
 	
 	//Move is only possible when there are no obstacles
     if (cellarstate.AgentPos.Y + 1 < Size && FreeTile(cellarstate, posN))
         legal.push_back(COORD::E_NORTH);
 
-	 if(FreeTile(cellarstate, posE))
-		  legal.push_back(COORD::E_EAST);
+    if(FreeTile(cellarstate, posE)) //East is always possible
+        legal.push_back(COORD::E_EAST);
 
     if (cellarstate.AgentPos.Y - 1 >= 0 && FreeTile(cellarstate, posS))
         legal.push_back(COORD::E_SOUTH);
@@ -931,55 +874,102 @@ void CELLAR::PGSLegal(const STATE& state, const HISTORY& history,
     if (cellarstate.AgentPos.X - 1 >= 0 && FreeTile(cellarstate, posW))
         legal.push_back(COORD::E_WEST);
 
-	 // If standing over a non sampled bottle, allow sample
+    // If standing over an unsampled bottle, allow sample
     int bottle = Grid(cellarstate.AgentPos);
     if (bottle >= 0 && bottle < NumBottles && !cellarstate.Bottles[bottle].Collected){
-        legal.push_back(E_SAMPLE);
-	 }
+        legal.push_back(E_SAMPLE + bottle);
+    }
 
-	 // 'Check' possible for non sampled bottles
+    // 'Check' possible for unsampled bottles
     for (bottle = 0; bottle < NumBottles; ++bottle)
         if (!cellarstate.Bottles[bottle].Collected)
-            legal.push_back(bottle + 1 + E_SAMPLE);
+            legal.push_back(E_BOTTLECHECK + bottle);
 	
-	 /*TODO: Add to PGS action selection in LNAI paper:
-				arg max_a \in A pgs(s,a)
+    /*
+     * After LNAI paper: arg max_a \in A pgs(s,a)
+     * where A are uncertainty reducing actions
+     */
+    // 'Check' possible for ACTIVE objects without an assumed type
+    for (int obj = 0; obj < NumObjects; ++obj){
+        if(cellarstate.Objects[obj].AssumedType == E_NONE && cellarstate.Objects[obj].active)
+            legal.push_back(E_OBJCHECK + obj);
+    }
 		  
-				where A are uncertainty reducing actions
-		  */
-	 // 'Check' possible for objects without an assumed type		  
-	 for (int obj = 0; obj < NumObjects; ++obj){
-		if(cellarstate.Objects[obj].AssumedType == E_NONE)
-			legal.push_back(obj + E_OBJCHECK);
+    //Additional actions for adjacent objects
+	//Push actions for adjacent objects
+    bool objN = false;
+    bool objE = false;
+    bool objS = false;
+    bool objW = false;
+	 
+    int numObjN, numObjS, numObjE, numObjW;	 
+
+    //Pushing bottles is allowed
+    if(Grid.Inside(posN) && Grid(posN) >= 0 && Grid(posN) < NumBottles){
+        legal.push_back(E_BPUSHNORTH + Grid(posN));
+    }
+    if(Grid.Inside(posS) && Grid(posS) >= 0 && Grid(posS) < NumBottles){
+        legal.push_back(E_BPUSHSOUTH + Grid(posS));
+    }
+    if(Grid.Inside(posE) && Grid(posE) >= 0 && Grid(posE) < NumBottles){
+        legal.push_back(E_BPUSHEAST + Grid(posE));
+    }
+    if(Grid.Inside(posW) && Grid(posW) >= 0 && Grid(posW) < NumBottles){
+        legal.push_back(E_BPUSHWEST + Grid(posW));
+    }	 
+	 
+    bool objsFound = false; //objN && objE && objS && objW;
+
+    //Pushing is allowed for active objects only
+	for(int i=0; i<cellarstate.Objects.size() && !objsFound; i++){
+        if(cellarstate.Objects[i].active){ //only use active objects
+            if(cellarstate.Objects[i].ObjPos == posN){
+                objN = true;
+                numObjN = i;
+			}
+			if(cellarstate.Objects[i].ObjPos == posE){
+				objE = true;
+				numObjE = i;
+			}
+			if(cellarstate.Objects[i].ObjPos == posS){
+				objS = true;
+				numObjS = i;
+			}
+			if(cellarstate.Objects[i].ObjPos == posW){
+				objW = true;
+				numObjW = i;
+			}
+			objsFound = objN && objE && objS && objW;
+		}
 	 }
 		  
-	 //Additional actions for adjacent objects
-	 if (cellarstate.AgentPos.Y + 1 < Size && !EmptyTile(cellarstate, posN))
-        legal.push_back(E_PUSHNORTH);
+    // If there are objects N,E,S or W of the agent, add these actions
+    if (cellarstate.AgentPos.Y + 1 < Size && objN)
+        legal.push_back(E_PUSHNORTH + numObjN);
 
-	 if(cellarstate.AgentPos.X + 1 < Size && !EmptyTile(cellarstate, posE))
-		  legal.push_back(E_PUSHEAST);
+    if (cellarstate.AgentPos.X + 1 < Size && objE)
+        legal.push_back(E_PUSHEAST + numObjE);
 
-    if (cellarstate.AgentPos.Y - 1 >= 0 && !EmptyTile(cellarstate, posS))
-        legal.push_back(E_PUSHSOUTH);
+    if (cellarstate.AgentPos.Y - 1 >= 0 && objS)
+        legal.push_back(E_PUSHSOUTH + numObjS);
 
-    if (cellarstate.AgentPos.X - 1 >= 0 && !EmptyTile(cellarstate, posW))
-        legal.push_back(E_PUSHWEST);
+    if (cellarstate.AgentPos.X - 1 >= 0 && objW)
+        legal.push_back(E_PUSHWEST + numObjW);
+    
 }
 
 void CELLAR::GenerateLegal(const STATE& state, const HISTORY& history,
     vector<int>& legal, const STATUS& status) const
 {
 
-    const CELLAR_STATE& cellarstate =
-        safe_cast<const CELLAR_STATE&>(state);
+    const CELLAR_STATE& cellarstate = safe_cast<const CELLAR_STATE&>(state);
 
-	 COORD pos = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y);
-	 COORD posN = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y+1);
-	 COORD posS = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y-1);
-	 COORD posW = COORD(cellarstate.AgentPos.X-1, cellarstate.AgentPos.Y);
-	 COORD posE = COORD(cellarstate.AgentPos.X+1, cellarstate.AgentPos.Y);		
-	
+    COORD pos = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y);
+    COORD posN = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y+1);
+    COORD posS = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y-1);
+    COORD posW = COORD(cellarstate.AgentPos.X-1, cellarstate.AgentPos.Y);
+    COORD posE = COORD(cellarstate.AgentPos.X+1, cellarstate.AgentPos.Y);		
+
 	//Move is only possible when there are no obstacles
     if (cellarstate.AgentPos.Y + 1 < Size && FreeTile(cellarstate, posN))
         legal.push_back(COORD::E_NORTH);
@@ -993,52 +983,86 @@ void CELLAR::GenerateLegal(const STATE& state, const HISTORY& history,
     if (cellarstate.AgentPos.X - 1 >= 0 && FreeTile(cellarstate, posW))
         legal.push_back(COORD::E_WEST);
 
-	 // If standing over a non sampled bottle, allow sample
+    // If standing over an unsampled bottle, allow sample
     int bottle = Grid(cellarstate.AgentPos);
     if (bottle >= 0 && bottle < NumBottles && !cellarstate.Bottles[bottle].Collected){
-        legal.push_back(E_SAMPLE);
-	 }
+        legal.push_back(E_SAMPLE + bottle);
+    }
 
-	 // 'Check' possible for non sampled bottles
+	// 'Check' possible for unsampled bottles
     for (bottle = 0; bottle < NumBottles; ++bottle)
         if (!cellarstate.Bottles[bottle].Collected)
-            legal.push_back(bottle + 1 + E_SAMPLE);
+            legal.push_back(E_BOTTLECHECK + bottle);
 	
-	 // 'Check' possible for all other objects, always
-	 for (int obj = 0; obj < NumObjects; ++obj)
-      legal.push_back(obj + E_OBJCHECK);
+    // 'Check' possible for all other objects, always
+    for (int obj = 0; obj < NumObjects; ++obj)
+        legal.push_back(E_OBJCHECK + obj);
+
+    //Push actions for adjacent objects
+    bool objN = false;
+    bool objE = false;
+    bool objS = false;
+    bool objW = false;
+    
+    if(Grid.Inside(posN) && Grid(posN) >= 0 && Grid(posN) < NumBottles){
+        legal.push_back(E_BPUSHNORTH + Grid(posN));
+    }
+    if(Grid.Inside(posS) && Grid(posS) >= 0 && Grid(posS) < NumBottles){
+        legal.push_back(E_BPUSHSOUTH + Grid(posS));
+    }
+    if(Grid.Inside(posE) && Grid(posE) >= 0 && Grid(posE) < NumBottles){
+        legal.push_back(E_BPUSHEAST + Grid(posE));
+    }
+    if(Grid.Inside(posW) && Grid(posW) >= 0 && Grid(posW) < NumBottles){
+        legal.push_back(E_BPUSHWEST + Grid(posW));
+    }
+    
+    int numObjN, numObjS, numObjE, numObjW;
+    
+    bool objsFound = false; //objN && objE && objS && objW;
 		  
-	 //Additional actions for adjacent objects
-	 if (cellarstate.AgentPos.Y + 1 < Size && !EmptyTile(cellarstate, posN))
-        legal.push_back(E_PUSHNORTH);
+    for(int i=0; i<cellarstate.Objects.size() && !objsFound; i++){
+        if(cellarstate.Objects[i].active){
+            if (cellarstate.Objects[i].ObjPos == posN) {
+				objN = true;
+				numObjN = i;
+			}
+			if (cellarstate.Objects[i].ObjPos == posE) {
+				objE = true;
+				numObjE = i;
+			}
+			if (cellarstate.Objects[i].ObjPos == posS) {
+				objS = true;
+				numObjS = i;
+			}
+			if (cellarstate.Objects[i].ObjPos == posW) {
+				objW = true;
+				numObjW = i;
+			}
+			objsFound = objN && objE && objS && objW;
+        }
+    }
 
-	 if(cellarstate.AgentPos.X + 1 < Size && !EmptyTile(cellarstate, posE))
-		  legal.push_back(E_PUSHEAST);
+    if (cellarstate.AgentPos.Y + 1 < Size && objN)
+        legal.push_back(E_PUSHNORTH + numObjN);
 
-    if (cellarstate.AgentPos.Y - 1 >= 0 && !EmptyTile(cellarstate, posS))
-        legal.push_back(E_PUSHSOUTH);
+    if (cellarstate.AgentPos.X + 1 < Size && objE)
+        legal.push_back(E_PUSHEAST + numObjE);
 
-    if (cellarstate.AgentPos.X - 1 >= 0 && !EmptyTile(cellarstate, posW))
-        legal.push_back(E_PUSHWEST);
+    if (cellarstate.AgentPos.Y - 1 >= 0 && objS)
+        legal.push_back(E_PUSHSOUTH + numObjS);
+
+    if (cellarstate.AgentPos.X - 1 >= 0 && objW)
+        legal.push_back(E_PUSHWEST + numObjW);
 }
 
-/*
-  Preferred actions RO policy from Rocksample.
-*/
+/* 
+ * Preferred actions ("smart") RO policy based on Rocksample
+ */
 void CELLAR::GeneratePreferred(const STATE& state, const HISTORY& history,
     vector<int>& actions, const STATUS& status) const
-{	
-	if(Knowledge.RolloutLevel >= KNOWLEDGE::PGS)
-	{
-		//Added alternative rollout policy for PGS
-		GeneratePGS(state, history, actions, status);
-		//GeneratePGS_fake(state, history, actions, status);
-		//Legal moves may also be used.
-		//GenerateLegal(state, history, actions, status);
-	}
-	else
-	{
-		static const bool UseBlindPolicy = false;
+{
+        static const bool UseBlindPolicy = false;
 
 		if (UseBlindPolicy)
 		{
@@ -1046,8 +1070,7 @@ void CELLAR::GeneratePreferred(const STATE& state, const HISTORY& history,
 			return;
 		}
 
-		const CELLAR_STATE& cellarstate =
-				  safe_cast<const CELLAR_STATE&>(state);
+		const CELLAR_STATE& cellarstate = safe_cast<const CELLAR_STATE&>(state);
 
 		// Sample rocks with more +ve than -ve observations
 		int rock = Grid(cellarstate.AgentPos);
@@ -1066,13 +1089,12 @@ void CELLAR::GeneratePreferred(const STATE& state, const HISTORY& history,
 			}
 			if (total > 0)
 			{
-				actions.push_back(E_SAMPLE);
+				actions.push_back(E_SAMPLE + rock);
 				return;
 			}
-
 		}
 
-		// processes the bottles
+		// Evaluate "rocks"
 		bool all_bad = true;
 		bool north_interesting = false;
 		bool south_interesting = false;
@@ -1112,7 +1134,7 @@ void CELLAR::GeneratePreferred(const STATE& state, const HISTORY& history,
 			}
 		}
 
-		// if all remaining rocks seem bad, then head east
+		// If all remaining "rocks" seem bad, then head east
 		if (all_bad)
 		{
 			actions.push_back(COORD::E_EAST);
@@ -1126,19 +1148,25 @@ void CELLAR::GeneratePreferred(const STATE& state, const HISTORY& history,
 		//   d) we never sample a rock (since we need to be sure)
 		//   e) we never move in a direction that doesn't take us closer to
 		//      either the edge of the map or an interesting rock
-		if (cellarstate.AgentPos.Y + 1 < Size && north_interesting)
-				actions.push_back(COORD::E_NORTH);
+		COORD posN = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y+1);
+		COORD posS = COORD(cellarstate.AgentPos.X, cellarstate.AgentPos.Y-1);
+		COORD posW = COORD(cellarstate.AgentPos.X-1, cellarstate.AgentPos.Y);
+		COORD posE = COORD(cellarstate.AgentPos.X+1, cellarstate.AgentPos.Y);
+		
+		if (cellarstate.AgentPos.Y + 1 < Size && north_interesting && FreeTile(cellarstate, posN))
+            actions.push_back(COORD::E_NORTH);
 
-		if (east_interesting)
+		if (east_interesting && FreeTile(cellarstate, posE))
 			actions.push_back(COORD::E_EAST);
 
-		if (cellarstate.AgentPos.Y - 1 >= 0 && south_interesting)
+		if (cellarstate.AgentPos.Y - 1 >= 0 && south_interesting && FreeTile(cellarstate, posS))
 			actions.push_back(COORD::E_SOUTH);
 
-		if (cellarstate.AgentPos.X - 1 >= 0 && west_interesting)
+		if (cellarstate.AgentPos.X - 1 >= 0 && west_interesting && FreeTile(cellarstate, posW))
 			actions.push_back(COORD::E_WEST);
 
 
+		//Bottle/rock checks using manual criteria from Rocksample
 		for (rock = 0; rock < NumBottles; ++rock)
 		{
 			if (!cellarstate.Bottles[rock].Collected    &&
@@ -1147,11 +1175,11 @@ void CELLAR::GeneratePreferred(const STATE& state, const HISTORY& history,
 				cellarstate.Bottles[rock].Measured < 5  &&
 				std::abs(cellarstate.Bottles[rock].Count) < 2)
 			{
-				actions.push_back(rock + 1 + E_SAMPLE);
+				actions.push_back(E_BOTTLECHECK + rock);
 			}
 		}
 		
-		//Use similar rules for object checks
+		//Use same rules for object checks
 		for (int obj = 0; obj < NumObjects; ++obj)
 		{
 			if (cellarstate.Objects[obj].ProbCrate != 0.0 &&
@@ -1159,13 +1187,72 @@ void CELLAR::GeneratePreferred(const STATE& state, const HISTORY& history,
 				cellarstate.Objects[obj].Measured < 5  &&
 				std::abs(cellarstate.Objects[obj].Count) < 2)
 			{
-				actions.push_back(obj + E_OBJCHECK);
+				actions.push_back(E_OBJCHECK + obj);
 			}
 		}
-	}
+		
+	 //Push actions for adjacent objects	 	
+    bool objN = false;
+    bool objE = false;
+    bool objS = false;
+    bool objW = false;
+    
+    if(Grid.Inside(posN) && Grid(posN) >= 0 && Grid(posN) < NumBottles){
+        actions.push_back(E_BPUSHNORTH + Grid(posN));
+    }
+    if(Grid.Inside(posS) && Grid(posS) >= 0 && Grid(posS) < NumBottles){
+        actions.push_back(E_BPUSHSOUTH + Grid(posS));
+    }
+    if(Grid.Inside(posE) && Grid(posE) >= 0 && Grid(posE) < NumBottles){
+        actions.push_back(E_BPUSHEAST + Grid(posE));
+    }
+    if(Grid.Inside(posW) && Grid(posW) >= 0 && Grid(posW) < NumBottles){
+        actions.push_back(E_BPUSHWEST + Grid(posW));
+    }
+
+    int numObjN, numObjS, numObjE, numObjW;
+    
+    bool objsFound = objN && objE && objS && objW;
+
+    for(int i=0; i<cellarstate.Objects.size() && !objsFound; i++){
+        if(cellarstate.Objects[i].active) {
+            if (cellarstate.Objects[i].ObjPos == posN) {
+                objN = true;
+                numObjN = i;
+            }
+            if (cellarstate.Objects[i].ObjPos == posE) {
+                objE = true;
+                numObjE = i;
+            }
+            if (cellarstate.Objects[i].ObjPos == posS) {
+                objS = true;
+                numObjS = i;
+            }
+            if (cellarstate.Objects[i].ObjPos == posW) {
+                objW = true;
+                numObjW = i;
+            }
+        }
+        objsFound = objN && objE && objS && objW;
+    }
+
+    if (cellarstate.AgentPos.Y + 1 < Size && objN)
+        actions.push_back(E_PUSHNORTH + numObjN);
+
+    if (cellarstate.AgentPos.X + 1 < Size && objE)
+        actions.push_back(E_PUSHEAST + numObjE);
+
+    if (cellarstate.AgentPos.Y - 1 >= 0 && objS)
+        actions.push_back(E_PUSHSOUTH + numObjS);
+
+    if (cellarstate.AgentPos.X - 1 >= 0 && objW)
+        actions.push_back(E_PUSHWEST + numObjW);
 }
 
-/////
+/*
+ * Various utility functions
+ */
+
 bool CELLAR::CrateAt(const CELLAR_STATE& cellarstate, const COORD& coord) const{
 	for(int i=0; i<cellarstate.Objects.size(); i++){
 		if(cellarstate.Objects[i].ObjPos == coord && cellarstate.Objects[i].Type == E_CRATE)
@@ -1211,52 +1298,34 @@ int CELLAR::ObjectNumber(const CELLAR_STATE& cellarstate, const COORD& coord) co
 	}
 	return -1;
 }
-/////
+//***//
 
 int CELLAR::GetObservation(const CELLAR_STATE& cellarstate, int pos, int type) const
 {	 
     double distance;
     double efficiency;
-	 int obs;
+    int obs;
 	
-	 if(type == 1){
-		distance = COORD::EuclideanDistance(cellarstate.AgentPos, BottlePos[pos]);
-		efficiency = (1 + pow(2, -distance / HalfEfficiencyDistance)) * 0.5;
-		 
-		if (Bernoulli(efficiency))
-        obs = cellarstate.Bottles[pos].Valuable ? E_GOOD : E_BAD;
-      else
-        obs = cellarstate.Bottles[pos].Valuable ? E_BAD : E_GOOD;
-	 }
-	 else{
-		distance = COORD::EuclideanDistance(cellarstate.AgentPos, cellarstate.Objects[pos].ObjPos);
-      efficiency = (1 + pow(2, -distance / HalfEfficiencyDistance)) * 0.5;
-		 
-		if (Bernoulli(efficiency))
-        obs = cellarstate.Objects[pos].Type == E_CRATE ? E_CRATE : E_SHELF;
-      else
-        obs = cellarstate.Objects[pos].Type == E_CRATE ? E_SHELF : E_CRATE;
-	 }
+    if(type == 1){
+        distance = COORD::EuclideanDistance(cellarstate.AgentPos, BottlePos[pos]);
+        efficiency = (1 + pow(2, -distance / HalfEfficiencyDistance)) * 0.5;
+        
+        if (Bernoulli(efficiency))
+            obs = cellarstate.Bottles[pos].Valuable ? E_GOOD : E_BAD;
+        else
+            obs = cellarstate.Bottles[pos].Valuable ? E_BAD : E_GOOD;
+    }
+    else{
+        distance = COORD::EuclideanDistance(cellarstate.AgentPos, cellarstate.Objects[pos].ObjPos);
+        efficiency = (1 + pow(2, -distance / HalfEfficiencyDistance)) * 0.5;
+        
+        if (Bernoulli(efficiency))
+            obs = cellarstate.Objects[pos].Type == E_CRATE ? E_CRATE : E_SHELF;
+        else
+            obs = cellarstate.Objects[pos].Type == E_CRATE ? E_SHELF : E_CRATE;
+    }
 	
    return obs; 
-}
-
-int CELLAR::SelectTarget(const CELLAR_STATE& cellarstate) const
-{
-/*    int bestDist = Size * 2;
-    int bestRock = -1;
-    for (int rock = 0; rock < NumRocks; ++rock)
-    {
-        if (!cellarstate.Rocks[rock].Collected
-            && cellarstate.Rocks[rock].Count >= UncertaintyCount)
-        {
-            int dist = COORD::ManhattanDistance(cellarstate.AgentPos, RockPos[rock]);
-            if (dist < bestDist)
-                bestDist = dist;
-        }
-    }
-    return bestRock;*/
-		return 0;
 }
 
 void CELLAR::DisplayBeliefs(const BELIEF_STATE& beliefState,
@@ -1278,38 +1347,41 @@ void CELLAR::DisplayState(const STATE& state, std::ostream& ostr) const
 {
     const CELLAR_STATE& cellarstate = safe_cast<const CELLAR_STATE&>(state);
     ostr << endl;
-    for (int x = 0; x < Size + 2; x++)
-        ostr << "# ";
+    for (int x = 0; x < Size + 2; x++) ostr << "# ";
     ostr << endl;
-	
-	 int thing = 0;
-	 int obj = 0;
-		
-    for (int y = Size - 1; y >= 0; y--)
-    {
+    
+    int thing = 0;
+    int obj = 0;
+
+    for (int y = Size - 1; y >= 0; y--){
         ostr << "# ";
-        for (int x = 0; x < Size; x++)
-        {
+        for (int x = 0; x < Size; x++){
             COORD pos(x, y);
             thing = Grid(pos);
-			  
+
             if (cellarstate.AgentPos == COORD(x, y))
                 ostr << "* ";
-            else
-					if (thing >= 0 && thing < NumBottles){ //Display non collected bottles
-					 const CELLAR_STATE::ENTRY& entry = cellarstate.Bottles[thing];
-                //if(!entry.Collected)
-					 ostr << thing << (entry.Valuable ? "$" : "X");
-					}
-					else{
-						int obj = ObjectNumber(cellarstate, pos);						
-						if(obj >= 0){
-							const CELLAR_STATE::OBJ_ENTRY& entry = cellarstate.Objects[obj];
-							ostr << (entry.Type == E_SHELF ? "S " : "C ");
-						}
-					   else
-						  	ostr << ". ";
-					}
+            else{
+                if (thing >= 0 && thing < NumBottles){ //Display non collected bottles
+                    const CELLAR_STATE::ENTRY& entry = cellarstate.Bottles[thing];
+                    if(!entry.Collected)
+                        ostr << thing << (entry.Valuable ? "$" : "X");
+                    else
+                        ostr << thing << "X";
+                }
+                else{
+                    int obj = ObjectNumber(cellarstate, pos);						
+                    if(obj >= 0){
+                        const CELLAR_STATE::OBJ_ENTRY& entry = cellarstate.Objects[obj];
+                        if(entry.active)
+                            ostr << obj << (entry.Type == E_SHELF ? "S" : "C");
+                        else
+                            ostr << obj << "!";
+                    }
+                    else
+                        ostr << ". ";
+                }
+            }
         }
         ostr << "#" << endl;
     }
@@ -1320,42 +1392,51 @@ void CELLAR::DisplayState(const STATE& state, std::ostream& ostr) const
 
 void CELLAR::DisplayObservation(const STATE& state, int observation, std::ostream& ostr) const
 {
-    switch (observation)
-    {
-    case E_NONE:
-        break;
-    case E_GOOD:
-        ostr << "Observed good" << endl;
-        break;
-    case E_BAD:
-        ostr << "Observed bad" << endl;
-        break;
-	 case E_CRATE:
-		  ostr << "Observed a crate" << endl;
-	     break;
-	 case E_SHELF:
-		  ostr << "Observed a shelf" << endl;
-	     break;
+    switch (observation){
+        case E_NONE:
+            break;
+        case E_GOOD:
+            ostr << "Observed good" << endl;
+            break;
+        case E_BAD:
+            ostr << "Observed bad" << endl;
+            break;
+        case E_CRATE:
+            ostr << "Observed a crate" << endl;
+            break;
+        case E_SHELF:
+            ostr << "Observed a shelf" << endl;
+            break;
     }
 }
 
 void CELLAR::DisplayAction(int action, std::ostream& ostr) const
 {
 	 ostr << "A: ";
-    if (action < E_PUSHNORTH)
+    if (action < E_SAMPLE)
         ostr << "Move " << COORD::CompassString[action] << endl;
-	 if (action == E_PUSHNORTH)
-        ostr << "Push N" << endl;
-	 if (action == E_PUSHSOUTH)
-        ostr << "Push S" << endl;
-	 if (action == E_PUSHEAST)
-        ostr << "Push E" << endl;
-	 if (action == E_PUSHWEST)
-        ostr << "Push W" << endl;
-    if (action == E_SAMPLE)
-        ostr << "Sample" << endl;
-    if (action > E_SAMPLE && action < E_OBJCHECK)
-        ostr << "Check bottle " << action - E_SAMPLE << endl;
-	 if (action >= E_OBJCHECK)
+    else if (action >= E_PUSHWEST)
+        ostr << "Push Obj " << action - E_PUSHWEST << " West" << endl;
+    else if (action >= E_PUSHEAST)
+        ostr << "Push Obj " << action - E_PUSHEAST << " East" << endl;
+    else if (action >= E_PUSHSOUTH)
+        ostr << "Push Obj " << action - E_PUSHSOUTH << " South" << endl;
+    else if (action >= E_PUSHNORTH)
+        ostr << "Push Obj " << action - E_PUSHNORTH << " North" << endl;
+    
+    else if (action >= E_BPUSHWEST)
+        ostr << "Push Bottle W " << action - E_BPUSHWEST << endl;
+    else if (action >= E_BPUSHEAST)
+        ostr << "Push Bottle E " << action - E_BPUSHEAST << endl;
+    else if (action >= E_BPUSHSOUTH)
+        ostr << "Push Bottle S " << action - E_BPUSHSOUTH << endl;
+    else if (action >= E_BPUSHNORTH)
+        ostr << "Push Bottle N " << action - E_BPUSHNORTH << endl;
+	 
+    else if (action >= E_OBJCHECK)
         ostr << "Check object " << action - E_OBJCHECK << endl;
+    else if (action >= E_BOTTLECHECK)
+        ostr << "Check bottle " << action - E_BOTTLECHECK << endl;
+    else if (action >= E_SAMPLE)
+        ostr << "Sample " << action - E_SAMPLE << endl;
 }
