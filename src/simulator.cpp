@@ -59,10 +59,24 @@ void SIMULATOR::GeneratePreferred(const STATE& state, const HISTORY& history,
 {
 }
 
+void SIMULATOR::GeneratePGS(const STATE& state, const HISTORY& history,
+    std::vector<int>& actions, const STATUS& status) const
+{
+}
+
 int SIMULATOR::SelectRandom(const STATE& state, const HISTORY& history,
     const STATUS& status) const
 {
     static vector<int> actions;
+    
+    //KNOWLEDGE::PGS = 3, use PGS rollout policy
+    if (Knowledge.RolloutLevel >= KNOWLEDGE::PGS)
+    {
+        actions.clear();
+        GeneratePGS(state, history, actions, status);
+        if (!actions.empty())
+            return actions[Random(actions.size())];
+    }
 
     if (Knowledge.RolloutLevel >= KNOWLEDGE::SMART)
     {		  
@@ -83,9 +97,6 @@ int SIMULATOR::SelectRandom(const STATE& state, const HISTORY& history,
     return Random(NumActions);
 }
 
-//TODO: Add prior values from knowledge representation, heuristics, etc.
-//This is where a KR would go, initializing prior state values when the nodes are first expanded.
-//If using something like a NN, getPriorValues(NN, state, count, value) --> qnode.Value.Set(count, value)
 void SIMULATOR::Prior(const STATE* state, const HISTORY& history,
     VNODE* vnode, const STATUS& status) const
 {
@@ -101,7 +112,7 @@ void SIMULATOR::Prior(const STATE* state, const HISTORY& history,
         vnode->SetChildren(+LargeInteger, -Infinity);
     }
 
-    if (Knowledge.TreeLevel >= KNOWLEDGE::LEGAL)
+    if (Knowledge.TreeLevel == KNOWLEDGE::LEGAL)
     {
         actions.clear();
         GenerateLegal(*state, history, actions, status);
@@ -114,7 +125,9 @@ void SIMULATOR::Prior(const STATE* state, const HISTORY& history,
             qnode.AMAF.Set(0, 0);
         }
     }
-	 if (Knowledge.TreeLevel >= KNOWLEDGE::PGS)
+    
+    // Priors for PGS are set the same as for uniformly random
+    if (Knowledge.TreeLevel >= KNOWLEDGE::PGS)
     {
         actions.clear();
         GenerateLegal(*state, history, actions, status);
@@ -127,7 +140,8 @@ void SIMULATOR::Prior(const STATE* state, const HISTORY& history,
             qnode.AMAF.Set(0, 0);
         }
     }
-	 else if (Knowledge.TreeLevel >= KNOWLEDGE::SMART)
+    
+    if (Knowledge.TreeLevel == KNOWLEDGE::SMART)
     {
         actions.clear();
         GeneratePreferred(*state, history, actions, status);
@@ -139,8 +153,7 @@ void SIMULATOR::Prior(const STATE* state, const HISTORY& history,
             qnode.Value.Set(Knowledge.SmartTreeCount, Knowledge.SmartTreeValue);
             qnode.AMAF.Set(Knowledge.SmartTreeCount, Knowledge.SmartTreeValue);
         }    
-    }
-	 
+    }	 
 	 
 }
 

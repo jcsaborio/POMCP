@@ -26,7 +26,7 @@ public:
             PURE,
             LEGAL,
             SMART,
-			   PGS,	//Added by JCS to test PGS
+            PGS,
             NUM_LEVELS
         };
 
@@ -112,6 +112,11 @@ public:
     // Generate set of preferred actions
     virtual void GeneratePreferred(const STATE& state, const HISTORY& history, 
         std::vector<int>& actions, const STATUS& status) const;
+    
+    // PGS Rollout policy (for compatibility with Cellar)
+    virtual void GeneratePGS(const STATE& state, const HISTORY& history,
+                                   std::vector<int>& actions, const STATUS& status) const;
+
 
     // For explicit POMDP computation only
     virtual bool HasAlpha() const;

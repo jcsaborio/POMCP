@@ -37,24 +37,21 @@ public:
     virtual bool Step(STATE& state, int action,
         int& observation, double& reward) const;
 
-	/*** Added by JCS to test PGS ***/
-	//Uses regular POMCP Step
+	/*** PGS support ***/
+	//Regular POMCP Step
 	bool StepNormal(STATE& state, int action,
         int& observation, double& reward) const;
 	//Step with PGS rewards
 	bool StepPGS(STATE& state, int action,
-        int& observation, double& reward) const;
-	// Simple Step (transition only)
-	bool SimpleStep(STATE& state, int action) const;
+        int& observation, double& reward) const;	
 	//PGS Rollout policy
 	void GeneratePGS(const STATE& state, const HISTORY& history,
         std::vector<int>& legal, const STATUS& status) const;
-	void GeneratePGS_fake(const STATE& state, const HISTORY& history,
-        std::vector<int>& legal, const STATUS& status) const;
+        
 	//Compute PGS value
 	double PGS(STATE& state) const;
 	double PGS_RO(STATE& oldstate, STATE& state, int action, double oldpgs) const;  //PGS for rollouts
-	/********************************/
+	/*******************/
 
     void GenerateLegal(const STATE& state, const HISTORY& history,
         std::vector<int>& legal, const STATUS& status) const;

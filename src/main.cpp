@@ -7,7 +7,7 @@
 #include "experiment.h"
 #include <boost/program_options.hpp>
 
-// Newer modifications
+// Include the Cellar domain
 #include "cellar.h"
 
 using namespace std;
@@ -42,8 +42,8 @@ int main(int argc, char* argv[])
     int size, number, treeknowledge = 1, rolloutknowledge = 1, smarttreecount = 10;
     double smarttreevalue = 1.0;
 
-	//ATM used for the Cellar setting, number2 = shelves, number3 = crates.
-	 int number2 = 10, number3 = 10;
+	//Used for Cellar settings: number2 = shelves, number3 = crates.
+    int number2 = 10, number3 = 10;
 	
     options_description desc("Allowed options");
     desc.add_options()
@@ -54,8 +54,8 @@ int main(int argc, char* argv[])
         ("policy", value<string>(&policy), "policy file (explicit POMDPs only)")
         ("size", value<int>(&size), "size of problem (problem specific)")
         ("number", value<int>(&number), "number of elements in problem (problem specific)")
-		  ("number2", value<int>(&number2), "number of elements in problem (problem specific)")
-		  ("number3", value<int>(&number3), "number of elements in problem (problem specific)")
+        ("number2", value<int>(&number2), "number of elements in problem (problem specific)")
+		("number3", value<int>(&number3), "number of elements in problem (problem specific)")
         ("timeout", value<double>(&expParams.TimeOut), "timeout (seconds)")
         ("mindoubles", value<int>(&expParams.MinDoubles), "minimum power of two simulations")
         ("maxdoubles", value<int>(&expParams.MaxDoubles), "maximum power of two simulations")
@@ -132,22 +132,32 @@ int main(int argc, char* argv[])
     }
     else if (problem == "cellar")
     {		  
-		  cout << "Running CELLAR " << size << "x" << size << " with ";
-		  cout << number << " bottles, ";
-		  cout << number2 << " shelves, ";
-		  cout << number3 << " crates." << endl;
-		  cout << expParams.NumSteps << endl;
-        real = new CELLAR(size, number, number2, number3);
-        simulator = new CELLAR(size, number, number2, number3);
+        cout << "Running CELLAR " << size << "x" << size << " with ";
+		cout << number << " bottles, ";
+		cout << number2 << " shelves, ";
+		cout << number3 << " crates." << endl;
+		cout << expParams.NumSteps << endl;
+        
+        CELLAR:CELLAR_PARAMS cp;        
+        cp.problem = "Cellar";
+        cp.size = size;
+        cp.bottles = number;
+        cp.shelves = number2;
+        cp.crates = number3;
+        cp.discount = 0.99;
+        cp.entropy = 0.5;
+        
+        real = new CELLAR(cp);
+        simulator = new CELLAR(cp);
     }
-	 else
+    else
     {
         cout << "Unknown problem" << endl;
         exit(1);
     }
 
-	 cout << "RO level: " << knowledge.RolloutLevel << endl;
-	 cout << "Tree level: " << knowledge.TreeLevel << endl;
+    cout << "RO level: " << knowledge.RolloutLevel << endl;
+    cout << "Tree level: " << knowledge.TreeLevel << endl;
 
     simulator->SetKnowledge(knowledge);
     EXPERIMENT experiment(*real, *simulator, outputfile, expParams, searchParams);

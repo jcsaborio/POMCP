@@ -1,17 +1,17 @@
 /* 
-	Cellar Domain v1.0
-	2018 by JCS, Uni-Osnabrueck.
+	Cellar Domain v2.0
+	2019 by JCS, Uni Osnabrueck.
 
 	The "cellar" domain was designed to test the convergence of POMDP and POMDP-derived algorithms when
 multiple "obstacles" are present, i.e. objects with interactions that do not directly contribute to solving the problem.
 
-   This domain is an adaptation of rocksample, which correctly represents many robotic POMDP-planning tasks but incorrectly
+   This domain is an extension of rocksample, which correctly represents many robotic POMDP-planning tasks but incorrectly
 assumes a minimalist model of the world (i.e. only rocks exist).  Cellar requires an agent to navigate and collect valuable bottles,
 avoid non valuable bottles and leave (EAST) with *at least* one bottle.  Some bottles may be behind crates, which the agent may push in
 different directions.  Other obstacles include shelves which cannot be moved.  Cellar differs from Rocksample in the following aspects:
 
 	- Four parameters are needed: cellar[n,m,x,y] = nxn grid, m bottles, x shelves, y crates.
-	- Four new actions are always available: PUSH + N, E, S, W.
+	- Several new actions are always available: PUSH + any object, SAMPLE + any object (v2.0)
 	- Attempting to push non-crate objects yields a punishment of -10.
 	- Each extra object also adds a CHECK action (in addition to each bottle).
 	- Each step yields a small punishment of -1.
@@ -19,14 +19,11 @@ different directions.  Other obstacles include shelves which cannot be moved.  C
 	It is worth noting the added actions, objects and observations create a much more complex POMDP than rocksample, and policies 
 can become excessively long without the movement punishment.
 
-	In this version, the initial location of all bottles and objects is known. Like rocksample, the agent determines the value of bottles and,
-in addition, determines whether an object is a crate or a shelf.  The location of crates changes when pushed.
-
-	Future versions may assume no initial knowledge whatsoever, so the agent must idenfity nearby objects/bottles first.
+	The initial location of all bottles and objects is *known*. Like in Rocksample, the agent must determine the value of bottles but
+in addition, it must determine whether an object is a crate or a shelf and whether pushing is necessary.  The location of crates changes when pushed.
 	
-	We contend that keeping track of certain "irrelevant" objects creates an unnecessarily large search space, and that they can be safely ignored
-without (significantly) affecting the convergence properties of the UCT algorithm.  This POMDP will allow us to verify this hypothesis and design
-methods that can transfer to real life robots more easily.
+	Reasoning about such "irrelevant" objects creates a very large search space, so the challenge is how safely avoiding said objects
+without (significantly) affecting the convergence properties of the MCTS algorithm.
 */
 
 #ifndef CELLAR_H
@@ -35,6 +32,20 @@ methods that can transfer to real life robots more easily.
 #include "simulator.h"
 #include "coord.h"
 #include "grid.h"
+
+struct CELLAR_PARAMS : MEMORY_OBJECT{
+    std::string problem;
+    std::string description;
+	int size;
+	int bottles;
+	int crates;
+	int shelves;
+	double discount;
+	double entropy;
+
+	CELLAR_PARAMS() : size(5), bottles(2), crates(6), shelves(4),
+					 discount(0.95), entropy(0.5){}
+};
 
 class CELLAR_STATE : public STATE
 {
@@ -53,28 +64,30 @@ public:
     };
     std::vector<ENTRY> Bottles;	 
 	 
-	 struct OBJ_ENTRY
+    struct OBJ_ENTRY
     {
         //bool Valuable;
-		  COORD ObjPos;
+        COORD ObjPos;
         int Type;
         int Count;    				// Smart knowledge
         int Measured; 				// Smart knowledge
         double LikelihoodCrate;	// Smart knowledge
         double LikelihoodShelf;	// Smart knowledge
         double ProbCrate;		// Smart knowledge
-		  int AssumedType;		// Assumptions
+        int AssumedType;		// Assumptions
+        bool active = true;
     };
-	 std::vector<OBJ_ENTRY> Objects;
+    
+    std::vector<OBJ_ENTRY> Objects;
     int Target; // Smart knowledge
-	 int CollectedBottles;
+	int CollectedBottles;    
 };
 
 class CELLAR : public SIMULATOR
 {
 public:
-
-    CELLAR(int size, int bottles, int shelves, int crates);
+    
+    CELLAR(CELLAR_PARAMS& params);
 
     virtual STATE* Copy(const STATE& state) const;
     virtual void Validate(const STATE& state) const;
@@ -83,7 +96,7 @@ public:
     virtual bool Step(STATE& state, int action,
         int& observation, double& reward) const;
 
-	/*** Added by JCS to test PGS ***/
+	/*** PGS support functions ***/
 	//Uses regular POMCP Step
 	bool StepNormal(STATE& state, int action,
         int& observation, double& reward) const;
@@ -98,12 +111,13 @@ public:
 	
 	//Compute PGS value
 	double PGS(STATE& state) const;
-	double PGS_RO(STATE& oldstate, STATE& state, int action, double oldpgs) const;  //PGS for rollouts
-	/********************************/
+	double PGS_RO(STATE& oldstate, STATE& state, int action, double oldpgs) const;  //Fast PGS for rollouts
 
-    void GenerateLegal(const STATE& state, const HISTORY& history,
-        std::vector<int>& legal, const STATUS& status) const;
+	//Avoid unnecessary checks, etc.
     void PGSLegal(const STATE& state, const HISTORY& history,
+        std::vector<int>& legal, const STATUS& status) const;
+	
+    void GenerateLegal(const STATE& state, const HISTORY& history,
         std::vector<int>& legal, const STATUS& status) const;
     void GeneratePreferred(const STATE& state, const HISTORY& history,
         std::vector<int>& legal, const STATUS& status) const;
@@ -119,55 +133,50 @@ public:
 protected:
 
 	//Observations
-    enum
-    {
+    enum{
         E_NONE,
         E_GOOD,
         E_BAD,
-		  E_SHELF,
-		  E_CRATE
-    };
-
-	 //Objects
-/*    enum
-    {		  
         E_SHELF,
-		  E_CRATE
+        E_CRATE
     };
-*/	 
-	 //Actions
-    enum
-    {        
-		  E_PUSHNORTH = 4,
-		  E_PUSHSOUTH,
-		  E_PUSHEAST,
-		  E_PUSHWEST,
-		  E_SAMPLE
+	 
+	 //Action categories
+    enum{
+        A_SAMPLE = 4,
+        A_BOTTLECHECK,
+        A_OBJCHECK,
+        A_PUSHNORTH,
+        A_PUSHSOUTH,
+        A_PUSHEAST,
+        A_PUSHWEST
     };
 
     void InitGeneral();
-	 void Init_5_1();
-	 void Init_5_2();
-    void Init_7_8();
-    void Init_11_11();
+	void Init_5_1(); //Cellar [5,1,0,4]
+	void Init_5_2(); //Cellar [5,2,6,4]
+    void Init_7_8(); //Celalr [7,8,7,8]
+    void Init_11_11(); //Cellar [11,11,15,15]
     int GetObservation(const CELLAR_STATE& cellarstate, int pos, int type) const;
     int SelectTarget(const CELLAR_STATE& cellarstate) const;
 	 
-	 bool CrateAt(const CELLAR_STATE& cellarstate, const COORD& coord) const;
-	 bool ShelfAt(const CELLAR_STATE& cellarstate, const COORD& coord) const;
-	 bool EmptyTile(const CELLAR_STATE& cellarstate, const COORD& coord) const;
-	 bool FreeTile(const CELLAR_STATE& cellarstate, const COORD& coord) const;
-	 int ObjectNumber(const CELLAR_STATE& cellarstate, const COORD& coord) const;
+	bool CrateAt(const CELLAR_STATE& cellarstate, const COORD& coord) const;
+	bool ShelfAt(const CELLAR_STATE& cellarstate, const COORD& coord) const;
+	bool EmptyTile(const CELLAR_STATE& cellarstate, const COORD& coord) const;
+	bool FreeTile(const CELLAR_STATE& cellarstate, const COORD& coord) const;
+    int ObjectNumber(const CELLAR_STATE& cellarstate, const COORD& coord) const;
 
     GRID<int> Grid;
     std::vector<COORD> BottlePos;
-	 std::vector<COORD> ObjectPos;
+    std::vector<COORD> ObjectPos;
     int Size, NumBottles, NumObjects, NumShelves, NumCrates, NumObjectTypes;
-	 int E_OBJCHECK;
+    int E_OBJCHECK, E_BOTTLECHECK, E_OBJPUSH, E_BOTTLEPUSH, E_BPUSHNORTH, E_BPUSHSOUTH, E_BPUSHEAST, E_BPUSHWEST, E_PUSHNORTH, E_PUSHSOUTH, E_PUSHEAST, E_PUSHWEST, E_SAMPLE; //Markers for the beginning of action group
     COORD StartPos;
     double HalfEfficiencyDistance;
     double SmartMoveProb;
     int UncertaintyCount;
+	double BIN_ENTROPY_LIMIT; //0.5 or set to preference
+	double ACTIVATION_THRESHOLD;
 
 private:
 
